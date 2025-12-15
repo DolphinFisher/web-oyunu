@@ -200,7 +200,16 @@
 
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- Socket.IO Client Kütüphanesi -->
+    <!-- Önce CDN deneyelim, başarısız olursa local'den çeksin (fallback) -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        if (typeof io === 'undefined') {
+            // CDN yüklenemediyse yerel sunucudan dene
+            document.write('<script src="/socket.io/socket.io.js"><\/script>');
+        }
+    </script>
+    
     <script src="js/moderator.js"></script>
 </body>
 </html>
