@@ -66,14 +66,17 @@ io.on('connection', (socket) => {
     
     // Admin Girişi
     socket.on('adminLogin', (data) => {
+        console.log(`[LOGIN ATTEMPT] User: ${data.username}, Pass: ${data.password}`);
         if (data.username === ADMIN_USER && data.password === ADMIN_PASS) {
             adminSocketId = socket.id;
+            console.log(`[LOGIN SUCCESS] Admin logged in with socket: ${socket.id}`);
             socket.emit('adminLoginSuccess');
             // Mevcut durumu gönder
             socket.emit('updatePlayerList', getSafePlayerList());
             // Mevcut ayarı gönder
             socket.emit('updateVisibilitySettings', gameState.answerVisibility);
         } else {
+            console.log(`[LOGIN FAILED] Invalid credentials.`);
             socket.emit('adminLoginFail');
         }
     });
