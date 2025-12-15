@@ -35,8 +35,13 @@ const generateLobbyId = () => {
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 // Admin kimlik bilgileri (Giriş yapmak için - Lobi oluşturma yetkisi verir)
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "12345";
+// Not: Railway gibi platformlarda Environment Variable olarak tanımlanabilir.
+const ADMIN_USER = (process.env.ADMIN_USER || "admin").trim();
+const ADMIN_PASS = (process.env.ADMIN_PASS || "12345").trim();
+
+console.log(`[SYSTEM] Admin User Configured: '${ADMIN_USER}'`);
+// Güvenlik için şifreyi loglamıyoruz, sadece uzunluğunu belirtiyoruz
+console.log(`[SYSTEM] Admin Pass Configured: ${'*'.repeat(ADMIN_PASS.length)}`);
 
 const LOBBY_LIFETIME = 24 * 60 * 60 * 1000; // 24 saat
 
@@ -80,12 +85,17 @@ io.on('connection', (socket) => {
     
     // Admin Girişi (Sadece yetkilendirme için)
     socket.on('adminLogin', (data) => {
-        console.log(`[LOGIN ATTEMPT] User: ${data.username}, Pass: ${data.password}`);
-        if (data.username === ADMIN_USER && data.password === ADMIN_PASS) {
+        const inputUser = (data.username || "").trim();
+        const inputPass = (data.password || "").trim();
+        
+        console.log(`[LOGIN ATTEMPT] Socket: ${socket.id}`);
+        console.log(`[LOGIN DATA] User: '${inputUser}', Pass: '${inputPass}'`); // Debug için açık (Prod'da kapatılmalı)
+        
+        if (inputUser === ADMIN_USER && inputPass === ADMIN_PASS) {
             console.log(`[LOGIN SUCCESS] Admin logged in with socket: ${socket.id}`);
             socket.emit('adminLoginSuccess');
         } else {
-            console.log(`[LOGIN FAILED] Invalid credentials.`);
+            console.log(`[LOGIN FAILED] Invalid credentials. Expected User: '${ADMIN_USER}'`);
             socket.emit('adminLoginFail');
         }
     });
