@@ -139,15 +139,16 @@ function resetUI() {
 }
 
 socket.on('lobbyClosed', () => {
-    showAlert('Bilgi', 'Lobi moderatör tarafından kapatıldı.');
-    
     // Local storage temizle
     localStorage.removeItem('player_pid');
     localStorage.removeItem('player_name');
     myPersistentId = null;
     myName = null;
 
-    resetUI();
+    // Tam temizlik için sayfayı yenile
+    // Ancak kullanıcıya kısa bir bilgi verelim
+    alert('Lobi moderatör tarafından kapatıldı. Ana sayfaya yönlendiriliyorsunuz.');
+    window.location.reload();
 });
 
 socket.on('error', (msg) => {

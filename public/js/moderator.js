@@ -187,6 +187,18 @@ function closeLobby() {
         // Reset local variables
         questions = [];
         renderQuestions();
+
+        // Form Reset (Varsayılan ayarlara dön)
+        document.querySelector('input[name="gameMode"][value="manual"]').checked = true;
+        toggleGameMode('manual');
+        
+        const anonInput = document.querySelector('input[name="anonymity"][value="none"]');
+        if (anonInput) anonInput.checked = true;
+        
+        const visInput = document.querySelector('input[name="visibility"][value="public"]');
+        if (visInput) visInput.checked = true;
+        
+        document.getElementById('newQuestion').value = '';
     });
 }
 
