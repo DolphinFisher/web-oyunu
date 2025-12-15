@@ -36,12 +36,14 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 
 // Admin kimlik bilgileri (Giriş yapmak için - Lobi oluşturma yetkisi verir)
 // Not: Railway gibi platformlarda Environment Variable olarak tanımlanabilir.
-const ADMIN_USER = (process.env.ADMIN_USER || "admin").trim();
-const ADMIN_PASS = (process.env.ADMIN_PASS || "12345").trim();
+// String'e çevirip trim yapıyoruz ki sayı gelirse patlamasın
+const ADMIN_USER = String(process.env.ADMIN_USER || "admin").trim();
+const ADMIN_PASS = String(process.env.ADMIN_PASS || "12345").trim();
 
-console.log(`[SYSTEM] Admin User Configured: '${ADMIN_USER}'`);
-// Güvenlik için şifreyi loglamıyoruz, sadece uzunluğunu belirtiyoruz
-console.log(`[SYSTEM] Admin Pass Configured: ${'*'.repeat(ADMIN_PASS.length)}`);
+console.log(`[SYSTEM] Admin User Configured: '${ADMIN_USER}' (Length: ${ADMIN_USER.length})`);
+console.log(`[SYSTEM] Admin Pass Configured Length: ${ADMIN_PASS.length}`);
+// Şifrenin karakter kodlarını logla (görünmez karakter kontrolü için)
+console.log(`[SYSTEM] Admin Pass Char Codes: ${ADMIN_PASS.split('').map(c => c.charCodeAt(0)).join(',')}`);
 
 const LOBBY_LIFETIME = 24 * 60 * 60 * 1000; // 24 saat
 

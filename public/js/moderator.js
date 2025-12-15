@@ -72,8 +72,26 @@ const answerList = document.getElementById('answerList');
 
 // --- GİRİŞ ---
 function login() {
-    const u = document.getElementById('username').value;
-    const p = document.getElementById('password').value;
+    const u = document.getElementById('username').value.trim();
+    const p = document.getElementById('password').value.trim();
+    
+    if (!u || !p) return alert("Kullanıcı adı ve şifre giriniz.");
+
+    console.log("Giriş denemesi gönderiliyor...");
+    
+    // Timeout kontrolü
+    const timeout = setTimeout(() => {
+        alert("Sunucudan yanıt alınamadı! (Timeout)");
+    }, 5000);
+    
+    // Tek seferlik listener ekle
+    socket.once('adminLoginFail', () => {
+        clearTimeout(timeout);
+    });
+    socket.once('adminLoginSuccess', () => {
+        clearTimeout(timeout);
+    });
+
     socket.emit('adminLogin', { username: u, password: p });
 }
 
