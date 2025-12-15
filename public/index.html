@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oyuna Katıl</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Oyuncu Çıkış Butonu -->
+        <button id="leaveLobbyBtn" class="top-right-btn hidden" onclick="leaveLobby()">Lobiden Çık</button>
+
+        <!-- Giriş Ekranı -->
+        <div id="joinScreen" class="card">
+            <h2>Oyuna Katıl</h2>
+            <input type="text" id="playerName" placeholder="Adınız Soyadınız" maxlength="15">
+            <button onclick="joinGame()">Katıl</button>
+            
+            <div style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                <a href="moderator.html" style="color: var(--text-color); text-decoration: none; font-size: 0.9em; opacity: 0.7;">
+                    ⚙️ Yönetici Girişi
+                </a>
+            </div>
+        </div>
+
+        <!-- Bekleme Ekranı -->
+        <div id="waitingScreen" class="card hidden">
+            <h2>Hazır Ol!</h2>
+            <p>Oyunun başlaması bekleniyor...</p>
+            <div class="loader" style="margin: 20px;">⏳</div>
+        </div>
+
+        <!-- Soru Ekranı -->
+        <div id="questionScreen" class="card hidden">
+            <h3 id="questionText">Soru buraya gelecek</h3>
+            <div style="margin: 20px 0;">
+                <input type="text" id="answerInput" placeholder="Cevabınız...">
+                <button onclick="submitAnswer()">Gönder</button>
+            </div>
+            <p id="statusMessage" style="color: green; display: none;">Cevabınız gönderildi, bekleyiniz.</p>
+        </div>
+
+        <!-- Sonuç/Cevap İzleme Ekranı -->
+        <div id="resultScreen" class="card hidden">
+            <h2>Cevaplar</h2>
+            <div id="publicAnswers"></div>
+        </div>
+        
+        <!-- Çark Overlay -->
+        <div id="wheelOverlay" class="hidden">
+             <div id="wheelContainer">
+                <div class="wheel-content">
+                    <h2>Şanslı Kişi Seçiliyor...</h2>
+                    <div id="winnerDisplay" class="spinning-text">???</div>
+                    <div id="selectionModeMessage" class="hidden" style="color: green; margin-top: 10px;">
+                        Sen seçildin! Cevabını merak ettiğin bir kutuya tıkla.
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Oyun Sonu -->
+        <div id="gameOverScreen" class="card hidden">
+            <h2>Oyun Bitti!</h2>
+            <p>Katıldığınız için teşekkürler.</p>
+        </div>
+
+        <!-- Custom Alert Modal -->
+        <div id="customAlert" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="alertTitle">Mesaj</h3>
+                    <button class="menu-dots" onclick="toggleAlertMenu()">⋮</button>
+                    <!-- Menü (Dropdown) -->
+                    <div id="alertMenu" class="dropdown-menu hidden">
+                        <button onclick="copyAlertMessage()">Kopyala</button>
+                        <button onclick="closeAlert()">Kapat</button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <p id="alertMessage">İçerik</p>
+                </div>
+                <div class="modal-footer">
+                    <button onclick="closeAlert()" class="primary">Tamam</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Confirm Modal -->
+        <div id="customConfirm" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="confirmTitle">Onay</h3>
+                </div>
+                <div class="modal-body">
+                    <p id="confirmMessage">Emin misiniz?</p>
+                </div>
+                <div class="modal-footer">
+                    <button id="confirmCancelBtn" class="danger" style="margin-right: 10px;">İptal</button>
+                    <button id="confirmOkBtn" class="primary">Tamam</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/player.js"></script>
+</body>
+</html>

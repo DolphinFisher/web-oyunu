@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moderatör Paneli</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Lobiyi Kapat Butonu -->
+        <button id="closeLobbyBtn" class="top-right-btn hidden" onclick="closeLobby()">Lobiyi Kapat</button>
+
+        <!-- Giriş Ekranı -->
+        <div id="loginScreen" class="card">
+            <h2>Moderatör Girişi</h2>
+            <input type="text" id="username" placeholder="Kullanıcı Adı">
+            <input type="password" id="password" placeholder="Şifre">
+            <button onclick="login()">Giriş Yap</button>
+        </div>
+
+        <!-- Soru Hazırlama Ekranı -->
+        <div id="setupScreen" class="card hidden">
+            <h2>Lobi Kurulumu</h2>
+            
+            <!-- Oyun Modu Seçimi -->
+            <div style="margin-bottom: 20px; text-align: left; background: var(--item-bg); padding: 15px; border-radius: 8px;">
+                <h3>Oyun Modu Seçimi:</h3>
+                <div style="margin-top: 10px;">
+                    <label style="display: block; margin-bottom: 8px; cursor: pointer;">
+                        <input type="radio" name="gameMode" value="random" onchange="toggleGameMode('random')"> 
+                        <strong>Random (Rastgele) Mod</strong>
+                        <br><small style="margin-left: 20px; color: #ccc;">Ayarlar sistem tarafından belirlenir.</small>
+                    </label>
+                    <label style="display: block; cursor: pointer;">
+                        <input type="radio" name="gameMode" value="manual" checked onchange="toggleGameMode('manual')"> 
+                        <strong>Manuel Mod</strong>
+                        <br><small style="margin-left: 20px; color: #ccc;">Ayarları kendiniz yapılandırın.</small>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Anonimlik Modu Seçimi -->
+            <div style="margin-bottom: 20px; text-align: left; background: var(--item-bg); padding: 15px; border-radius: 8px;">
+                <h3>Oyuncu Gizlilik Ayarları:</h3>
+                <p style="font-size: 0.9em; color: #ccc; margin-bottom: 15px;">
+                    Çark çevrilirken oyuncu isimlerinin gizlenip gizlenmeyeceğini belirleyin.
+                </p>
+                <div style="margin-top: 10px;">
+                    <label style="display: block; margin-bottom: 12px; cursor: pointer;">
+                        <input type="radio" name="anonymity" value="none" checked> 
+                        <strong>Açık (Her Zaman Görünür)</strong>
+                        <br><small style="margin-left: 20px; color: #bbb;">Oyuncu isimleri çark dönerken de açıkça görünür.</small>
+                    </label>
+                    <label style="display: block; cursor: pointer;">
+                        <input type="radio" name="anonymity" value="full"> 
+                        <strong>Gizli (Çarkta Anonim)</strong>
+                        <br><small style="margin-left: 20px; color: #bbb;">İsimler lobide görünür, ancak çark çekilişinde "Anonim" olarak gizlenir.</small>
+                    </label>
+                </div>
+            </div>
+
+            <div id="manualSetupArea">
+                <h3>Soru Ekleme</h3>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="newQuestion" placeholder="Sorunuzu buraya yazın...">
+                    <button onclick="addQuestion()">Ekle</button>
+                </div>
+                <ul id="questionList"></ul>
+                
+                <div style="margin: 20px 0; text-align: left; background: var(--item-bg); padding: 15px; border-radius: 8px;">
+                    <h3>Katılımcı Sorularının (Cevaplarının) Görünürlük Ayarı:</h3>
+                    <div style="margin-top: 10px;">
+                        <label style="display: block; margin-bottom: 8px; cursor: pointer;">
+                            <input type="radio" name="visibility" value="admin_only"> Sadece admin ekranında göster
+                        </label>
+                        <label style="display: block; cursor: pointer;">
+                            <input type="radio" name="visibility" value="public" checked> Tüm katılımcılara göster
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <button onclick="createLobby()" class="primary">Lobiyi Oluştur & QR Üret</button>
+            </div>
+        </div>
+
+        <!-- Lobi Bekleme Ekranı -->
+        <div id="lobbyScreen" class="card hidden">
+            <h2>
+                Lobi Hazır 
+                <span id="lobbyModeBadge" style="font-size: 0.6em; background: var(--accent-color); padding: 2px 8px; border-radius: 10px; vertical-align: middle;">MANUEL</span>
+            </h2>
+            <div id="anonymityBadge" style="font-size: 0.8em; margin-top: 5px; color: #aaa;">Gizlilik: Açık</div>
+            
+            <p>Oyuncular QR kodu okutarak katılabilir.</p>
+            <div id="qrCodeContainer" style="margin: 20px;">
+                <!-- QR Kod buraya gelecek -->
+            </div>
+            <h3>Katılımcılar (<span id="playerCount">0</span>)</h3>
+            <ul id="playerList"></ul>
+            <button onclick="startGame()">Oyunu Başlat</button>
+        </div>
+
+        <!-- Oyun Yönetim Ekranı -->
+        <div id="gameScreen" class="card hidden">
+            <h2 id="currentQuestionDisplay">Soru Yükleniyor...</h2>
+            
+            <!-- Oyun İçi Görünürlük Ayarı -->
+            <div style="background: var(--answer-bg); padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 0.9em; display: flex; flex-direction: column; gap: 5px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span><strong>Cevap Görünürlüğü:</strong> <span id="currentVisibilityDisplay">Herkese Açık</span></span>
+                    <button onclick="toggleVisibility()" style="padding: 5px 10px; font-size: 12px; background: #666;">Değiştir</button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                     <span><strong>Gizlilik Modu:</strong> <span id="currentAnonymityDisplay">Açık</span></span>
+                     <button onclick="cycleAnonymity()" style="padding: 5px 10px; font-size: 12px; background: #666;">Değiştir</button>
+                </div>
+            </div>
+
+            <div id="gameControls">
+                <div style="margin: 20px 0;">
+                    <p>Cevaplayanlar: <span id="answerStats">0 / 0</span></p>
+                </div>
+                
+                <button id="revealBtn" onclick="revealAnswers()">Cevapları Göster</button>
+                <button id="spinBtn" class="hidden" onclick="spinWheel()">Çarkı Çevir (%30 Şans)</button>
+                <!-- Manuel Çark Butonu -->
+                <button id="manualSpinBtn" onclick="spinWheel()" style="background-color: #9b59b6;">🎲 Manuel Çark Başlat</button>
+                
+                <button id="nextBtn" class="hidden" onclick="nextQuestion()">Sıradaki Soru</button>
+            </div>
+
+            <div id="answersContainer" style="margin-top: 20px;">
+                <ul id="answerList"></ul>
+            </div>
+        </div>
+        
+        <!-- Çark Overlay -->
+        <div id="wheelContainer" class="hidden">
+            <div class="wheel-content">
+                <h2>Şanslı Kişi Seçiliyor...</h2>
+                <div id="wheelWinnerName" class="spinning-text">???</div>
+                
+                <!-- Toggle Button for Winner Name -->
+                <div id="winnerControls" class="hidden" style="margin: 15px 0;">
+                    <button id="toggleWinnerBtn" class="secondary" onclick="toggleWinnerName()">
+                        👁️ İsmi Göster
+                    </button>
+                </div>
+
+                <p id="wheelInstruction" class="hidden">Kazanan bir cevap seçecek!</p>
+                <button id="closeWheelBtn" class="hidden" onclick="closeWheel()">Devam Et</button>
+            </div>
+        </div>
+
+        <!-- Custom Alert Modal -->
+        <div id="customAlert" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="alertTitle">Mesaj</h3>
+                    <button class="menu-dots" onclick="toggleAlertMenu()">⋮</button>
+                    <!-- Menü (Dropdown) -->
+                    <div id="alertMenu" class="dropdown-menu hidden">
+                        <button onclick="copyAlertMessage()">Kopyala</button>
+                        <button onclick="closeAlert()">Kapat</button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <p id="alertMessage">İçerik</p>
+                </div>
+                <div class="modal-footer">
+                    <button onclick="closeAlert()" class="primary">Tamam</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Confirm Modal -->
+        <div id="customConfirm" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="confirmTitle">Onay</h3>
+                </div>
+                <div class="modal-body">
+                    <p id="confirmMessage">Emin misiniz?</p>
+                </div>
+                <div class="modal-footer">
+                    <button id="confirmCancelBtn" class="danger" style="margin-right: 10px;">İptal</button>
+                    <button id="confirmOkBtn" class="primary">Tamam</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/moderator.js"></script>
+</body>
+</html>
