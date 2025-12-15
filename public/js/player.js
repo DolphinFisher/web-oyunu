@@ -351,9 +351,17 @@ socket.on('authorRevealed', (data) => {
     let found = false;
 
     cards.forEach(card => {
-        if (card.innerText.includes(data.answer)) {
+        // Not: card.innerText içinde yazar adı da olabilir, bu yüzden sadece answer'a bakmak riskli olabilir ama
+        // şimdilik basit match yapıyoruz. Daha sağlamı: data-answer attribute kullanmak.
+        // Ama şimdilik includes ile devam edelim, ancak yazar eklenmemişse ekleyelim.
+        
+        // İçeriği temizlemeden eklemek için:
+        if (card.innerText.includes(data.answer) && !card.innerText.includes("(Yazan:")) {
             card.style.border = "2px solid var(--accent-color)";
             card.innerHTML += `<br><span style="color: var(--accent-color); font-weight:bold;">(Yazan: ${data.author})</span>`;
+            found = true;
+        } else if (card.innerText.includes(data.answer)) {
+            // Zaten yazılmışsa found true yap
             found = true;
         }
     });
