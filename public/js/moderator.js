@@ -145,8 +145,13 @@ function toggleGameMode(mode) {
      }
      
      socket.emit('createLobby', { questions, visibility, gameMode, anonymityMode });
-     
+}
+
+socket.on('lobbyCreated', (data) => {
      // Badge güncelle
+     const gameMode = data.settings.gameMode;
+     const anonymityMode = data.settings.anonymityMode;
+
      const badge = document.getElementById('lobbyModeBadge');
      if (badge) {
          badge.innerText = (gameMode === 'random') ? 'RANDOM MOD' : 'MANUEL MOD';
@@ -161,18 +166,26 @@ function toggleGameMode(mode) {
          anonBadge.innerText = anonText;
      }
      
+     // Lobi ID Göster
+     const idDisplay = document.getElementById('lobbyIdDisplay');
+     if (idDisplay) {
+         idDisplay.innerText = data.lobbyId;
+     }
+     
      // QR Kod oluştur
-     const joinUrl = window.location.origin; // Ana sayfaya yönlendirir
+     const joinUrl = window.location.origin + "/?lobby=" + data.lobbyId;
+     
     fetch(`/api/qrcode?url=${encodeURIComponent(joinUrl)}`)
         .then(res => res.json())
-        .then(data => {
-            document.getElementById('qrCodeContainer').innerHTML = `<img src="${data.dataUrl}" style="width: 200px;">`;
+        .then(qrData => {
+            document.getElementById('qrCodeContainer').innerHTML = `<img src="${qrData.dataUrl}" style="width: 200px;">`;
         });
 
     setupScreen.classList.add('hidden');
     lobbyScreen.classList.remove('hidden');
     document.getElementById('closeLobbyBtn').classList.remove('hidden');
-}
+});
+
 
 function closeLobby() {
     showConfirm('Lobiyi Kapat', 'Lobiyi kapatmak istediğinize emin misiniz? Bu işlem geri alınamaz.', () => {

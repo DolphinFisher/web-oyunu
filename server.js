@@ -3,10 +3,6 @@ const http = require('http');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
 const path = require('path');
-// const { v4: uuidv4 } = require('uuid'); // UUID kütüphanesi yoksa npm install uuid yapacağız veya basit bir random ID kullanacağız.
-
-// UUID kurulumu yapılmadığı için basit bir unique ID üreteci kullanalım
-const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const app = express();
 const server = http.createServer(app);
@@ -23,40 +19,58 @@ const io = new Server(server, {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Oyun Durumu (Basitçe bellekte tutuyoruz)
-let gameState = {
-    questions: [], // { id: 1, text: "Soru?" }
-    currentQuestionIndex: -1, // -1: Başlamadı
-    players: {}, // socketId -> { name: "Ali", score: 0 } 
-    // YENİ YAPI: persistentId -> { socketId: "...", name: "Ali", score: 0, isConnected: true }
-    answers: {}, // questionIndex -> { persistentId: "Cevap" }
-    isGameActive: false,
-    lobbyActive: false,
-    wheelSpinning: false,
-    answerVisibility: 'public', // 'public' | 'admin_only'
-    gameMode: 'manual', // 'manual' | 'random'
-    anonymityMode: 'none' // 'none' | 'full'
+// --- MULTI-LOBBY SYSTEM ---
+const lobbies = new Map(); // lobbyId -> Lobby Object
+
+// Generate 6-character alphanumeric Lobby ID
+const generateLobbyId = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let result = "";
+    for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
 };
 
-// Admin kimlik bilgileri (Basitlik için hardcoded)
-const ADMIN_USER = "admin";
-const ADMIN_PASS = "12345";
-let adminSocketId = null;
+const generateId = () => Math.random().toString(36).substr(2, 9);
 
-// Yardımcı Fonksiyonlar
-function getPlayerBySocketId(socketId) {
-    return Object.values(gameState.players).find(p => p.socketId === socketId);
-}
+// Admin kimlik bilgileri (Giriş yapmak için - Lobi oluşturma yetkisi verir)
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PASS = process.env.ADMIN_PASS || "12345";
 
-function getSafePlayerList() {
-    // Admin her zaman gerçek isimleri görür (bu fonksiyon admin'e gönderiliyorsa)
-    // Ancak bu fonksiyonu genel kullanım için tanımlamıştık.
-    // YENİ KURAL: Anonim mod sadece çarkı etkiler, lobi listesini etkilemez.
-    // Bu yüzden burada isimleri maskelemiyoruz.
-    
-    return Object.values(gameState.players)
-        .filter(p => p.isConnected)
-        .map(p => ({ name: p.name, id: p.persistentId }));
+const LOBBY_LIFETIME = 24 * 60 * 60 * 1000; // 24 saat
+
+// Rate Limiting (Basit socket-tabanlı)
+const joinAttempts = new Map(); // socketId -> { count, timestamp }
+
+class Lobby {
+    constructor(id, adminSocketId) {
+        this.id = id;
+        this.adminSocketId = adminSocketId;
+        this.players = {}; // persistentId -> player
+        this.questions = [];
+        this.currentQuestionIndex = -1;
+        this.answers = {}; // index -> { pid: answer }
+        this.isGameActive = false;
+        this.lobbyActive = true; 
+        this.wheelSpinning = false;
+        this.settings = {
+            answerVisibility: 'public', // 'public' | 'admin_only'
+            gameMode: 'manual', // 'manual' | 'random'
+            anonymityMode: 'none' // 'none' | 'full'
+        };
+        this.createdAt = Date.now();
+    }
+
+    getSafePlayerList() {
+        return Object.values(this.players)
+            .filter(p => p.isConnected)
+            .map(p => ({ name: p.name, id: p.persistentId }));
+    }
+
+    getPlayerBySocketId(socketId) {
+        return Object.values(this.players).find(p => p.socketId === socketId);
+    }
 }
 
 io.on('connection', (socket) => {
@@ -64,71 +78,139 @@ io.on('connection', (socket) => {
 
     // --- GENEL ---
     
-    // Admin Girişi
+    // Admin Girişi (Sadece yetkilendirme için)
     socket.on('adminLogin', (data) => {
         console.log(`[LOGIN ATTEMPT] User: ${data.username}, Pass: ${data.password}`);
         if (data.username === ADMIN_USER && data.password === ADMIN_PASS) {
-            adminSocketId = socket.id;
             console.log(`[LOGIN SUCCESS] Admin logged in with socket: ${socket.id}`);
             socket.emit('adminLoginSuccess');
-            // Mevcut durumu gönder
-            socket.emit('updatePlayerList', getSafePlayerList());
-            // Mevcut ayarı gönder
-            socket.emit('updateVisibilitySettings', gameState.answerVisibility);
         } else {
             console.log(`[LOGIN FAILED] Invalid credentials.`);
             socket.emit('adminLoginFail');
         }
     });
 
-    // Oyuncu Girişi (YENİLENMİŞ)
-    socket.on('playerJoin', (data) => {
-        // data: { name: "Ali", persistentId: "..." (varsa) }
+    // --- LOBİ YÖNETİMİ ---
+
+    // Yeni Lobi Oluştur
+    socket.on('createLobby', (data) => {
+        // Yeni bir lobi ID üret
+        let lobbyId = generateLobbyId();
+        while (lobbies.has(lobbyId)) {
+            lobbyId = generateLobbyId();
+        }
+
+        const lobby = new Lobby(lobbyId, socket.id);
+
+        // Ayarları uygula
+        lobby.questions = Array.isArray(data) ? data : (data.questions || []);
+        lobby.settings.answerVisibility = (data.visibility === 'admin_only') ? 'admin_only' : 'public';
+        lobby.settings.gameMode = data.gameMode || 'manual';
+        lobby.settings.anonymityMode = data.anonymityMode || 'none';
         
-        if (!gameState.lobbyActive && !gameState.isGameActive) {
-             // Oyun/Lobi aktif değilse reddet
+        // Lobiyi kaydet
+        lobbies.set(lobbyId, lobby);
+        
+        // Admin'i odaya al
+        socket.join(lobbyId);
+        socket.data.lobbyId = lobbyId;
+        socket.data.isAdmin = true;
+
+        console.log(`[LOBBY CREATED] ID: ${lobbyId}, Admin: ${socket.id}`);
+        
+        // Admin'e bildir
+        socket.emit('lobbyCreated', { 
+            lobbyId: lobbyId,
+            settings: lobby.settings
+        });
+        
+        socket.emit('updateVisibilitySettings', lobby.settings.answerVisibility);
+    });
+
+    // Oyuncu Girişi (Lobi ID ile)
+    socket.on('playerJoin', (data) => {
+        // data: { name, persistentId, lobbyId }
+        
+        // Rate Limit Kontrolü
+        const attemptData = joinAttempts.get(socket.id) || { count: 0, timestamp: Date.now() };
+        if (Date.now() - attemptData.timestamp > 60000) {
+            // 1 dakika geçtiyse sıfırla
+            attemptData.count = 0;
+            attemptData.timestamp = Date.now();
+        }
+        
+        if (attemptData.count >= 3) {
+            socket.emit('error', 'Çok fazla deneme yaptınız. Lütfen bekleyiniz.');
+            return;
+        }
+
+        const lobbyId = data.lobbyId ? data.lobbyId.toUpperCase() : null;
+        
+        if (!lobbyId) {
+            attemptData.count++;
+            joinAttempts.set(socket.id, attemptData);
+            socket.emit('error', 'Lobi ID gereklidir.');
+            return;
+        }
+
+        const lobby = lobbies.get(lobbyId);
+
+        if (!lobby) {
+            attemptData.count++;
+            joinAttempts.set(socket.id, attemptData);
+            socket.emit('error', 'Geçersiz Kod: Lobi bulunamadı!');
+            return;
+        }
+
+        // Lobi Süresi Kontrolü
+        if (Date.now() - lobby.createdAt > LOBBY_LIFETIME) {
+            lobbies.delete(lobbyId); // Süresi dolmuş lobiyi temizle
+            socket.emit('error', 'Bu lobinin süresi dolmuş.');
+            return;
+        }
+
+        // Başarılı giriş - Sayacı sıfırla (veya azaltma yapma)
+        // attemptData.count = 0; 
+        
+        if (!lobby.lobbyActive && !lobby.isGameActive) {
              socket.emit('error', 'Lobi şu an kapalı.');
              return;
         }
+
+        // Socket'i odaya al
+        socket.join(lobbyId);
+        socket.data.lobbyId = lobbyId;
+        socket.data.isAdmin = false;
 
         const name = data.name;
         let persistentId = data.persistentId;
 
         // Yeniden Bağlanma Kontrolü
-        if (persistentId && gameState.players[persistentId]) {
-            // Eski oyuncu geri döndü
-            const player = gameState.players[persistentId];
+        if (persistentId && lobby.players[persistentId]) {
+            const player = lobby.players[persistentId];
             player.socketId = socket.id;
             player.isConnected = true;
-            console.log(`Oyuncu tekrar bağlandı: ${player.name} (${persistentId})`);
+            console.log(`Oyuncu tekrar bağlandı: ${player.name} (${persistentId}) -> Lobby: ${lobbyId}`);
             
-            socket.emit('joinedLobby', { persistentId: player.persistentId, name: player.name });
+            socket.emit('joinedLobby', { persistentId: player.persistentId, name: player.name, lobbyId: lobbyId });
             
             // Oyun durumunu restore et
-            if (gameState.isGameActive) {
-                // Mevcut soruyu gönder
-                const isWheelRound = (gameState.currentQuestionIndex >= 2) && (Math.random() < 0.3); // Bu logic biraz hatalı, server tarafında wheel durumu saklanmalıydı.
-                // Basitlik için wheelChance'i false gönderelim veya global bir state'e taşıyalım. 
-                // Şimdilik sadece soruyu gönderelim.
-                
+            if (lobby.isGameActive) {
+                const isWheelRound = (lobby.currentQuestionIndex >= 2) && (Math.random() < 0.3);
                 socket.emit('newQuestion', {
-                    question: gameState.questions[gameState.currentQuestionIndex],
-                    index: gameState.currentQuestionIndex,
-                    total: gameState.questions.length,
-                    wheelChance: false // Tekrar bağlanınca çark animasyonunu tekrar oynatmayalım
+                    question: lobby.questions[lobby.currentQuestionIndex],
+                    index: lobby.currentQuestionIndex,
+                    total: lobby.questions.length,
+                    wheelChance: false
                 });
 
-                // Eğer bu soruya cevap vermişse bildirelim (Frontend'de input kilitli kalsın)
-                if (gameState.answers[gameState.currentQuestionIndex] && gameState.answers[gameState.currentQuestionIndex][persistentId]) {
+                if (lobby.answers[lobby.currentQuestionIndex] && lobby.answers[lobby.currentQuestionIndex][persistentId]) {
                     socket.emit('answerReceived');
                 }
-            } else if (gameState.lobbyActive) {
-                 // Sadece lobide bekliyor
             }
-
         } else {
             // Yeni Oyuncu
-            if (!gameState.lobbyActive) {
+            if (!lobby.lobbyActive) {
                 socket.emit('error', 'Oyun başladı, yeni giriş yapılamaz.');
                 return;
             }
@@ -136,7 +218,7 @@ io.on('connection', (socket) => {
             const safeName = name.trim().slice(0, 15) || "Anonim";
             persistentId = generateId();
             
-            gameState.players[persistentId] = {
+            lobby.players[persistentId] = {
                 persistentId: persistentId,
                 socketId: socket.id,
                 name: safeName,
@@ -144,147 +226,119 @@ io.on('connection', (socket) => {
                 isConnected: true
             };
 
-            socket.emit('joinedLobby', { persistentId: persistentId, name: safeName });
+            console.log(`Yeni oyuncu: ${safeName} -> Lobby: ${lobbyId}`);
+            socket.emit('joinedLobby', { persistentId: persistentId, name: safeName, lobbyId: lobbyId });
         }
         
         // Admin'e bildir
-        if (adminSocketId) {
-            io.to(adminSocketId).emit('updatePlayerList', getSafePlayerList());
-        }
+        io.to(lobby.adminSocketId).emit('updatePlayerList', lobby.getSafePlayerList());
     });
 
-    // --- MODERATÖR AKSİYONLARI ---
+    // --- OYUN AKSİYONLARI ---
+    // Helper: Socket'in bulunduğu lobiyi getir
+    const getLobby = () => {
+        const lid = socket.data.lobbyId;
+        return lobbies.get(lid);
+    };
 
-    // Soruları Kaydet ve Lobiyi Aç
-    socket.on('createLobby', async (data) => {
-        if (socket.id !== adminSocketId) return;
-        
-        const questions = Array.isArray(data) ? data : data.questions;
-        const visibility = (data.visibility === 'admin_only') ? 'admin_only' : 'public';
-        const gameMode = data.gameMode || 'manual';
-        const anonymityMode = data.anonymityMode || 'none';
+    const verifyAdmin = (lobby) => {
+        return lobby && lobby.adminSocketId === socket.id;
+    };
 
-        gameState.questions = questions;
-        gameState.answerVisibility = visibility;
-        gameState.gameMode = gameMode;
-        gameState.anonymityMode = anonymityMode;
-        gameState.lobbyActive = true;
-        gameState.currentQuestionIndex = -1;
-        gameState.players = {}; 
-        gameState.answers = {};
-        
-        io.emit('lobbyOpened');
-        socket.emit('updateVisibilitySettings', gameState.answerVisibility);
-    });
-    
     // Ayar Değiştirme
     socket.on('changeVisibility', (mode) => {
-        if (socket.id !== adminSocketId) return;
-        gameState.answerVisibility = mode;
-        socket.emit('updateVisibilitySettings', gameState.answerVisibility);
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
+        lobby.settings.answerVisibility = mode;
+        socket.emit('updateVisibilitySettings', lobby.settings.answerVisibility);
     });
 
-    // Anonimlik Değiştirme (İsteğe bağlı, oyun içinde değiştirmek için)
     socket.on('changeAnonymity', (mode) => {
-        if (socket.id !== adminSocketId) return;
-        gameState.anonymityMode = mode;
-        
-        // Listeyi güncelle
-        io.to(adminSocketId).emit('updatePlayerList', getSafePlayerList());
-        socket.emit('updateAnonymitySettings', gameState.anonymityMode); // Frontend listener lazım
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
+        lobby.settings.anonymityMode = mode;
+        io.to(lobby.adminSocketId).emit('updatePlayerList', lobby.getSafePlayerList());
+        socket.emit('updateAnonymitySettings', lobby.settings.anonymityMode);
     });
 
     // Oyunu Başlat
     socket.on('startGame', () => {
-        if (socket.id !== adminSocketId) return;
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
         
-        gameState.lobbyActive = false; 
-        gameState.isGameActive = true;
-        gameState.currentQuestionIndex = 0;
+        lobby.lobbyActive = false; 
+        lobby.isGameActive = true;
+        lobby.currentQuestionIndex = 0;
         
-        io.emit('newQuestion', {
-            question: gameState.questions[0],
+        io.to(lobby.id).emit('newQuestion', {
+            question: lobby.questions[0],
             index: 0,
-            total: gameState.questions.length
+            total: lobby.questions.length
         });
     });
 
     // Lobiyi Kapat (Admin)
     socket.on('closeLobby', () => {
-        if (socket.id !== adminSocketId) return;
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
 
-        // 1. Performans Analizi (Önce)
+        // Performans logları
         const memBefore = process.memoryUsage();
-        console.log(`[DB OPTIMIZATION] Lobi kapatma işlemi başlatıldı.`);
-        console.log(`[METRICS] Başlangıç Bellek Kullanımı: ${(memBefore.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+        console.log(`[LOBBY CLOSE] Lobby: ${lobby.id} kapatılıyor.`);
 
-        // 2. Veritabanı Bağlantısını Sıfırla (State Reset)
-        // Mevcut referansları kopararak Garbage Collector'ın işini kolaylaştır
-        gameState = {
-            questions: [], 
-            currentQuestionIndex: -1, 
-            players: {}, 
-            answers: {}, 
-            isGameActive: false,
-            lobbyActive: false,
-            wheelSpinning: false,
-            answerVisibility: 'public',
-            gameMode: 'manual',
-            anonymityMode: 'none'
-        };
-
-        // 3. Kaynakları Serbest Bırak
-        // (Node.js otomatik yönetir ama manuel tetikleme denemesi yapılabilir - genelde gerekmez)
-        // Eğer --expose-gc ile çalıştırılsaydı global.gc() çağırılabilirdi.
-        
         // Tüm oyunculara bildir
-        io.emit('lobbyClosed');
+        io.to(lobby.id).emit('lobbyClosed');
+        
+        // Lobiyi sil
+        lobbies.delete(lobby.id);
 
-        // 4. Performans Analizi (Sonra)
         const memAfter = process.memoryUsage();
-        console.log(`[DB OPTIMIZATION] Veritabanı (GameState) tamamen sıfırlandı.`);
-        console.log(`[METRICS] Bitiş Bellek Kullanımı: ${(memAfter.heapUsed / 1024 / 1024).toFixed(2)} MB`);
-        console.log(`[SUCCESS] Sistem rahatlatıldı ve yeni oturum için hazır.`);
+        console.log(`[METRICS] Bellek: ${(memBefore.heapUsed / 1024 / 1024).toFixed(2)} MB -> ${(memAfter.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+        
+        // Admin state reset
+        socket.data.lobbyId = null;
     });
 
     // Oyuncu Lobiden Çık (Manuel)
     socket.on('playerLeave', () => {
-        const player = getPlayerBySocketId(socket.id);
+        const lobby = getLobby();
+        if (!lobby) return;
+
+        const player = lobby.getPlayerBySocketId(socket.id);
         if (player) {
-            console.log(`Oyuncu ayrıldı (Manuel): ${player.name}`);
-            delete gameState.players[player.persistentId];
+            console.log(`Oyuncu ayrıldı: ${player.name} (Lobby: ${lobby.id})`);
+            delete lobby.players[player.persistentId];
             
-            if (adminSocketId) {
-                io.to(adminSocketId).emit('updatePlayerList', getSafePlayerList());
-                io.to(adminSocketId).emit('updateAnswerStatus', {
-                    answered: 0, 
-                    total: getSafePlayerList().length
+            if (lobby.adminSocketId) {
+                io.to(lobby.adminSocketId).emit('updatePlayerList', lobby.getSafePlayerList());
+                io.to(lobby.adminSocketId).emit('updateAnswerStatus', {
+                    answered: 0, // Basitlik için sıfırlanabilir veya hesaplanabilir ama oyun içi çıkışlar nadir
+                    total: lobby.getSafePlayerList().length
                 });
             }
         }
     });
 
-
     // Sonraki Soru
     socket.on('nextQuestion', () => {
-        if (socket.id !== adminSocketId) return;
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
 
-        gameState.currentQuestionIndex++;
+        lobby.currentQuestionIndex++;
         
-        if (gameState.currentQuestionIndex >= gameState.questions.length) {
-            io.emit('gameOver');
-            gameState.isGameActive = false;
+        if (lobby.currentQuestionIndex >= lobby.questions.length) {
+            io.to(lobby.id).emit('gameOver');
+            lobby.isGameActive = false;
         } else {
-            // Manuel modda otomatik çark şansı olmasın
             let isWheelRound = false;
-            if (gameState.gameMode !== 'manual') {
-                isWheelRound = (gameState.currentQuestionIndex >= 2) && (Math.random() < 0.3);
+            if (lobby.settings.gameMode !== 'manual') {
+                isWheelRound = (lobby.currentQuestionIndex >= 2) && (Math.random() < 0.3);
             }
             
-            io.emit('newQuestion', {
-                question: gameState.questions[gameState.currentQuestionIndex],
-                index: gameState.currentQuestionIndex,
-                total: gameState.questions.length,
+            io.to(lobby.id).emit('newQuestion', {
+                question: lobby.questions[lobby.currentQuestionIndex],
+                index: lobby.currentQuestionIndex,
+                total: lobby.questions.length,
                 wheelChance: isWheelRound 
             });
         }
@@ -292,29 +346,27 @@ io.on('connection', (socket) => {
 
     // Cevapları Göster
     socket.on('revealAnswers', () => {
-        if (socket.id !== adminSocketId) return;
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
         
-        const currentAnswers = gameState.answers[gameState.currentQuestionIndex] || {};
+        const currentAnswers = lobby.answers[lobby.currentQuestionIndex] || {};
         const anonymousAnswers = Object.values(currentAnswers);
         
-        socket.emit('showAnswers', anonymousAnswers);
+        socket.emit('showAnswers', anonymousAnswers); // Admine gönder
         
-        if (gameState.answerVisibility === 'public') {
-            socket.broadcast.emit('showAnswers', anonymousAnswers);
+        if (lobby.settings.answerVisibility === 'public') {
+            socket.broadcast.to(lobby.id).emit('showAnswers', anonymousAnswers);
         } else {
-            socket.broadcast.emit('answersRevealedToAdmin');
+            socket.broadcast.to(lobby.id).emit('answersRevealedToAdmin');
         }
     });
 
     // Çark Döndür
     socket.on('spinWheel', () => {
-        if (socket.id !== adminSocketId) {
-            console.warn(`Yetkisiz çark çevirme denemesi! IP: ${socket.handshake.address}`);
-            return;
-        }
+        const lobby = getLobby();
+        if (!verifyAdmin(lobby)) return;
         
-        // Sadece bağlı oyuncular arasından seç
-        const activePlayers = Object.values(gameState.players).filter(p => p.isConnected);
+        const activePlayers = Object.values(lobby.players).filter(p => p.isConnected);
         
         if (activePlayers.length === 0) {
             socket.emit('error', 'Çevirecek oyuncu yok!');
@@ -323,37 +375,26 @@ io.on('connection', (socket) => {
 
         const winner = activePlayers[Math.floor(Math.random() * activePlayers.length)];
         
-        // Anonimlik Modu Kontrolü
-        // YENİ KURAL: Sadece çarkta görünen isim "Anonim" olur.
-        // Güvenlik için candidates listesini de maskeliyoruz.
-        
         let displayWinnerName = winner.name;
         let displayCandidates = activePlayers.map(p => p.name);
 
-        if (gameState.anonymityMode === 'full') {
+        if (lobby.settings.anonymityMode === 'full') {
             displayWinnerName = "Anonim";
-            // Candidates listesini de "Anonim" ile doldur veya boş bırak, 
-            // ama client tarafında "???" animasyonu için bir şeyler göndermemiz gerekebilir.
-            // Client tarafı zaten anonymityMode='full' ise "???" gösteriyor.
-            // Biz yine de veri sızdırmamak için gerçek isimleri göndermeyelim.
             displayCandidates = activePlayers.map(() => "Anonim");
         }
         
-        gameState.wheelSpinning = true;
-        
-        // LOGLAMA
-        console.log(`[ÇARK] ${new Date().toISOString()} - Admin çarkı çevirdi. Kazanan: ${winner.name} (${winner.persistentId})`);
+        lobby.wheelSpinning = true;
+        console.log(`[ÇARK] Lobby: ${lobby.id} - Kazanan: ${winner.name}`);
 
-        io.emit('wheelResult', { 
+        io.to(lobby.id).emit('wheelResult', { 
             winnerId: winner.persistentId, 
             winnerName: displayWinnerName,
             candidates: displayCandidates,
-            anonymityMode: gameState.anonymityMode
+            anonymityMode: lobby.settings.anonymityMode
         });
         
-        // Eğer görünürlük 'admin_only' ise, kazanana özel olarak cevapları gönder ki seçebilsin
-        if (gameState.answerVisibility === 'admin_only') {
-            const currentAnswers = gameState.answers[gameState.currentQuestionIndex] || {};
+        if (lobby.settings.answerVisibility === 'admin_only') {
+            const currentAnswers = lobby.answers[lobby.currentQuestionIndex] || {};
             const anonymousAnswers = Object.values(currentAnswers);
             io.to(winner.socketId).emit('enableSelection', anonymousAnswers);
         }
@@ -361,40 +402,44 @@ io.on('connection', (socket) => {
 
     // Yazar İfşası
     socket.on('revealAuthor', (targetAnswerText) => {
-        const currentAnswers = gameState.answers[gameState.currentQuestionIndex];
+        const lobby = getLobby();
+        if (!lobby) return;
+
+        const currentAnswers = lobby.answers[lobby.currentQuestionIndex];
         let authorName = "Bilinmiyor";
         
-        for (const [pid, answer] of Object.entries(currentAnswers)) {
-            if (answer === targetAnswerText) {
-                authorName = gameState.players[pid].name;
-                break;
+        if (currentAnswers) {
+            for (const [pid, answer] of Object.entries(currentAnswers)) {
+                if (answer === targetAnswerText) {
+                    authorName = lobby.players[pid].name;
+                    break;
+                }
             }
         }
         
-        io.emit('authorRevealed', { answer: targetAnswerText, author: authorName });
+        io.to(lobby.id).emit('authorRevealed', { answer: targetAnswerText, author: authorName });
     });
-
-    // --- OYUNCU AKSİYONLARI ---
 
     // Cevap Ver
     socket.on('submitAnswer', (answerText) => {
-        if (!gameState.isGameActive) return;
+        const lobby = getLobby();
+        if (!lobby || !lobby.isGameActive) return;
         
-        const player = getPlayerBySocketId(socket.id);
+        const player = lobby.getPlayerBySocketId(socket.id);
         if (!player) return; // Oyuncu bulunamadı
         
         const pid = player.persistentId;
 
-        if (!gameState.answers[gameState.currentQuestionIndex]) {
-            gameState.answers[gameState.currentQuestionIndex] = {};
+        if (!lobby.answers[lobby.currentQuestionIndex]) {
+            lobby.answers[lobby.currentQuestionIndex] = {};
         }
         
-        gameState.answers[gameState.currentQuestionIndex][pid] = answerText;
+        lobby.answers[lobby.currentQuestionIndex][pid] = answerText;
         
-        const answerCount = Object.keys(gameState.answers[gameState.currentQuestionIndex]).length;
-        const totalPlayers = Object.keys(gameState.players).filter(k => gameState.players[k].isConnected).length; // Aktif oyunculara göre oranla
+        const answerCount = Object.keys(lobby.answers[lobby.currentQuestionIndex]).length;
+        const totalPlayers = Object.keys(lobby.players).filter(k => lobby.players[k].isConnected).length;
         
-        io.to(adminSocketId).emit('updateAnswerStatus', { 
+        io.to(lobby.adminSocketId).emit('updateAnswerStatus', { 
             answered: answerCount, 
             total: totalPlayers 
         });
@@ -403,23 +448,31 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('Kullanıcı ayrıldı:', socket.id);
-        
-        const player = getPlayerBySocketId(socket.id);
-        if (player) {
-            player.isConnected = false;
-            // Oyuncuyu hemen silmiyoruz!
-            // Admin listesini güncelle (Offline olarak gösterebiliriz veya listeden geçici kaldırabiliriz)
-            // Şimdilik listeden düşürelim ama hafızada kalsın
-            if (adminSocketId) {
-                io.to(adminSocketId).emit('updatePlayerList', getSafePlayerList());
+        const lobby = getLobby();
+        if (lobby) {
+            if (verifyAdmin(lobby)) {
+                 // Admin çıktı
+                 console.log(`Admin disconnected from lobby ${lobby.id}`);
+                 // Burada lobiyi kapatabiliriz veya bekletebiliriz. 
+                 // Şimdilik açık kalsın, admin reconnect yaparsa tekrar yönetebilsin (socketId değişeceği için zor, reconnect logic lazım)
+                 // Mevcut yapıda admin refresh atarsa lobby'yi kaybeder.
+            } else {
+                // Oyuncu çıktı
+                const player = lobby.getPlayerBySocketId(socket.id);
+                if (player) {
+                    player.isConnected = false;
+                    console.log(`Kullanıcı ayrıldı: ${player.name} (Lobby: ${lobby.id})`);
+                    if (lobby.adminSocketId) {
+                        io.to(lobby.adminSocketId).emit('updatePlayerList', lobby.getSafePlayerList());
+                    }
+                }
             }
         }
     });
 });
 
 
-// QR Code API (İsteğe bağlı, frontend kütüphanesi de kullanılabilir ama sunucuda da dursun)
+// QR Code API
 app.get('/api/qrcode', async (req, res) => {
     try {
         const url = req.query.url;

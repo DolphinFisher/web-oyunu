@@ -12,6 +12,7 @@ const gameOverScreen = document.getElementById('gameOverScreen');
 let isMyTurnToPick = false;
 let myPersistentId = localStorage.getItem('player_pid');
 let myName = localStorage.getItem('player_name');
+let myLobbyId = localStorage.getItem('player_lobby');
 
 // Bildirim Değişkenleri
 // (Temizlendi)
@@ -83,18 +84,52 @@ document.getElementById('confirmCancelBtn').addEventListener('click', () => {
 
 // Sayfa yüklendiğinde otomatik bağlanmayı dene
 window.addEventListener('load', () => {
-    if (myPersistentId && myName) {
+    // URL Parametrelerini Kontrol Et
+    const urlParams = new URLSearchParams(window.location.search);
+    const lobbyIdParam = urlParams.get('lobby'); // veya 'code'
+    
+    if (lobbyIdParam) {
+        // Eğer URL'de kod varsa direkt input alanını aç ve doldur
+        showCodeInput();
+        const input = document.getElementById('lobbyIdInput');
+        if (input) input.value = lobbyIdParam;
+    }
+
+    if (myPersistentId && myName && myLobbyId) {
         console.log("Eski oturum bulundu, yeniden bağlanılıyor...", myPersistentId);
-        socket.emit('playerJoin', { name: myName, persistentId: myPersistentId });
+        // Otomatik bağlanma durumunda da lobi kontrol edilecek (sunucu tarafında)
+        // Ancak URL'den gelen yeni bir lobi kodu varsa öncelik onda olmalı mı?
+        // Genelde QR kod okutulduysa yeni bir oyuna girmek isteniyordur.
+        
+        if (lobbyIdParam && lobbyIdParam !== myLobbyId) {
+            // Farklı bir lobiye girmeye çalışıyor, eski oturumu yoksay
+            console.log("Yeni lobi algılandı, eski oturum yoksayılıyor.");
+        } else {
+             socket.emit('playerJoin', { name: myName, persistentId: myPersistentId, lobbyId: myLobbyId });
+        }
     }
 });
 
+function showCodeInput() {
+    document.getElementById('initialOptions').classList.add('hidden');
+    document.getElementById('manualEntryArea').classList.remove('hidden');
+}
+
+function cancelManualEntry() {
+    document.getElementById('manualEntryArea').classList.add('hidden');
+    document.getElementById('initialOptions').classList.remove('hidden');
+}
+
 function joinGame() {
     const name = document.getElementById('playerName').value;
+    const lobbyId = document.getElementById('lobbyIdInput').value.trim().toUpperCase();
+    
+    if (!lobbyId) return alert("Lobi kodu giriniz!");
+    if (lobbyId.length < 6) return alert("Lobi kodu en az 6 karakter olmalıdır!");
     if (!name) return alert("İsim giriniz!");
     
     // Yeni giriş
-    socket.emit('playerJoin', { name: name, persistentId: null });
+    socket.emit('playerJoin', { name: name, persistentId: null, lobbyId: lobbyId });
 }
 
 socket.on('joinedLobby', (data) => {
@@ -102,9 +137,16 @@ socket.on('joinedLobby', (data) => {
     if (data.persistentId) {
         myPersistentId = data.persistentId;
         myName = data.name;
+        myLobbyId = data.lobbyId;
+        
         localStorage.setItem('player_pid', myPersistentId);
         localStorage.setItem('player_name', myName);
+        localStorage.setItem('player_lobby', myLobbyId);
     }
+    
+    // URL güncelle (kolay paylaşım için)
+    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?lobby=' + myLobbyId;
+    window.history.pushState({path:newUrl},'',newUrl);
 
     joinScreen.classList.add('hidden');
     waitingScreen.classList.remove('hidden');
@@ -120,8 +162,10 @@ function leaveLobby() {
         // Local storage temizle
         localStorage.removeItem('player_pid');
         localStorage.removeItem('player_name');
+        localStorage.removeItem('player_lobby');
         myPersistentId = null;
         myName = null;
+        myLobbyId = null;
 
         // UI Sıfırla
         resetUI();

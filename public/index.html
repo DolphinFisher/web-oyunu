@@ -14,8 +14,20 @@
         <!-- Giriş Ekranı -->
         <div id="joinScreen" class="card">
             <h2>Oyuna Katıl</h2>
-            <input type="text" id="playerName" placeholder="Adınız Soyadınız" maxlength="15">
-            <button onclick="joinGame()">Katıl</button>
+            
+            <div id="initialOptions">
+                <p>Moderatörün paylaştığı QR kodu okutun veya kodu manuel girin.</p>
+                <div style="margin: 20px 0;">
+                    <button onclick="showCodeInput()" class="secondary" style="width: 100%; margin-bottom: 10px;">🔑 Kodla Giriş Yap</button>
+                </div>
+            </div>
+
+            <div id="manualEntryArea" class="hidden">
+                <input type="text" id="lobbyIdInput" placeholder="Lobi Kodu (Örn: ABC123)" maxlength="6" style="text-transform: uppercase; letter-spacing: 2px; text-align: center; margin-bottom: 10px;">
+                <input type="text" id="playerName" placeholder="Adınız Soyadınız" maxlength="15">
+                <button onclick="joinGame()">Katıl</button>
+                <button onclick="cancelManualEntry()" class="danger" style="margin-top: 10px; font-size: 0.8em; padding: 5px 10px;">İptal</button>
+            </div>
             
             <div style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
                 <a href="moderator.html" style="color: var(--text-color); text-decoration: none; font-size: 0.9em; opacity: 0.7;">
