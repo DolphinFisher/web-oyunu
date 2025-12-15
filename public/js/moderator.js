@@ -1,4 +1,11 @@
-const socket = io();
+// Backend URL'i (Railway)
+const BACKEND_URL = "https://web-production-9dab5.up.railway.app";
+
+// Socket bağlantısını backend URL'ine yönlendir
+const socket = io(BACKEND_URL, {
+    transports: ['websocket', 'polling']
+});
+
 let questions = [];
 
 // --- Custom Alert/Confirm Fonksiyonları (Moderator) ---
