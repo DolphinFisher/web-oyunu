@@ -75,7 +75,7 @@ socket.on('connect', () => {
 });
 
 // DOM Elementleri
-const loginScreen = document.getElementById('loginScreen');
+// const loginScreen = document.getElementById('loginScreen'); (Removed)
 const setupScreen = document.getElementById('setupScreen');
 const lobbyScreen = document.getElementById('lobbyScreen');
 const gameScreen = document.getElementById('gameScreen');
@@ -83,39 +83,8 @@ const questionList = document.getElementById('questionList');
 const playerList = document.getElementById('playerList');
 const answerList = document.getElementById('answerList');
 
-// --- GİRİŞ ---
-function login() {
-    const u = document.getElementById('username').value.trim();
-    const p = document.getElementById('password').value.trim();
-    
-    if (!u || !p) return alert("Kullanıcı adı ve şifre giriniz.");
-
-    console.log("Giriş denemesi gönderiliyor...");
-    
-    // Timeout kontrolü
-    const timeout = setTimeout(() => {
-        alert("Sunucudan yanıt alınamadı! (Timeout)");
-    }, 5000);
-    
-    // Tek seferlik listener ekle
-    socket.once('adminLoginFail', () => {
-        clearTimeout(timeout);
-    });
-    socket.once('adminLoginSuccess', () => {
-        clearTimeout(timeout);
-    });
-
-    socket.emit('adminLogin', { username: u, password: p });
-}
-
-socket.on('adminLoginSuccess', () => {
-    loginScreen.classList.add('hidden');
-    setupScreen.classList.remove('hidden');
-});
-
-socket.on('adminLoginFail', () => {
-    alert('Hatalı giriş!');
-});
+// --- GİRİŞ (İPTAL EDİLDİ - PUBLIC ACCESS) ---
+// function login() { ... }
 
 // --- SORU HAZIRLAMA ---
 function addQuestion() {
